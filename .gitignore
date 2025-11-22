@@ -1,4 +1,11 @@
 *py[co]
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+.python-version
 
 # Packages
 *.egg
@@ -18,3 +25,6 @@ develop-eggs
 
 test/korail_idpw.txt
 .idea
+
+.DS_Store
+*.apk
