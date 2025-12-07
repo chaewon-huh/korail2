@@ -43,6 +43,33 @@ Or, you can also install manually:
 Using
 -----
 
+### Quick CLI for 좌석 모니터링/자동 예약 ###
+
+설치 후 바로 쓸 수 있는 간단 스크립트가 있습니다.
+
+- 파일: `scripts/monitor_and_reserve.py`
+- 기능: 특정 날짜/구간의 일반실 좌석을 주기적으로 조회하고 생기면 즉시 예약 시도
+- 주요 옵션:
+  - `--id`, `--pw` : 코레일 계정(전화번호는 010-1234-5678 형태 자동 정규화)
+  - `--dep`, `--arr` : 출발/도착역 (기본: 동대구→광명)
+  - `--date` : `YYYYMMDD` (기본: 오늘)
+  - `--time` : 검색 시작 시각 `HHMMSS` (기본: 현재 시각)
+  - `--end-time` : 이 시각 이후 열차는 제외 `HHMMSS` (선택)
+  - `--limit` : 한 번의 폴링에서 “가장 이른 N개”만 예약 시도 (기본 3)
+  - `--interval` : 폴링 간격 초 (최소 3초)
+
+예시) 오늘 광명→대전, 18:43 이후 21:00 이전 열차만 감시:
+
+```bash
+python scripts/monitor_and_reserve.py \
+  --id "YOUR_ID" --pw "YOUR_PW" \
+  --dep "광명" --arr "대전" \
+  --date 20251207 --time 184300 --end-time 205959 \
+  --limit 3 --interval 5
+```
+
+성공하면 예약 ID와 열차 정보가 로그로 찍히며 종료됩니다. 실패하면 `Ctrl+C`로 중단하세요.
+
 ### 1. Login ###
 
 First, you need to create a Korail object.
