@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import random
 import sys
 import time
 from datetime import datetime
@@ -89,6 +90,12 @@ def parse_args() -> argparse.Namespace:
         "--interval", type=int, default=3, help="Polling interval seconds"
     )
     parser.add_argument(
+        "--jitter",
+        type=float,
+        default=0.0,
+        help="Add random jitter to interval: sleep = interval +/- jitter seconds",
+    )
+    parser.add_argument(
         "--telegram-token",
         default=None,
         help="Telegram bot token (or env TELEGRAM_BOT_TOKEN)",
@@ -125,6 +132,7 @@ def poll_and_reserve(
     end_time: Optional[str] = None,
     telegram_token: Optional[str] = None,
     telegram_chat_id: Optional[str] = None,
+    jitter: float = 0.0,
 ):
     dep = dep.strip()
     arr = arr.strip()
@@ -132,6 +140,7 @@ def poll_and_reserve(
     dep_time = _validate_time(dep_time.strip())
     end_time = _validate_time(end_time.strip()) if end_time else None
     interval = max(3, min(interval, 300))
+    jitter = max(0.0, min(float(jitter), 5.0))
 
     attempt = 0
     relogin_attempts = 0
@@ -193,7 +202,7 @@ def poll_and_reserve(
         except Exception as exc:  # pragma: no cover - safety net for unexpected issues
             logger.exception("Unexpected error: %s", exc)
 
-        time.sleep(interval)
+        _sleep_with_jitter(interval, jitter)
 
 
 def poll_and_reserve_exact_train(
@@ -205,12 +214,14 @@ def poll_and_reserve_exact_train(
     interval: int,
     telegram_token: Optional[str] = None,
     telegram_chat_id: Optional[str] = None,
+    jitter: float = 0.0,
 ):
     dep = dep.strip()
     arr = arr.strip()
     date = _validate_date(date.strip())
     exact_dep_time = _validate_time(exact_dep_time.strip())
     interval = max(3, min(interval, 300))
+    jitter = max(0.0, min(float(jitter), 5.0))
 
     attempt = 0
     relogin_attempts = 0
@@ -275,7 +286,7 @@ def poll_and_reserve_exact_train(
         except Exception as exc:  # pragma: no cover - safety net for unexpected issues
             logger.exception("Unexpected error: %s", exc)
 
-        time.sleep(interval)
+        _sleep_with_jitter(interval, jitter)
 
 
 def _notify_telegram(token: str, chat_id: str, text: str) -> None:
@@ -288,6 +299,13 @@ def _notify_telegram(token: str, chat_id: str, text: str) -> None:
             )
     except Exception as exc:  # pragma: no cover
         logger.warning("Telegram notify error: %s", exc)
+
+
+def _sleep_with_jitter(interval: int, jitter: float) -> None:
+    sleep_for = float(interval)
+    if jitter > 0:
+        sleep_for += random.uniform(-jitter, jitter)
+    time.sleep(max(0.1, sleep_for))
 
 
 def main() -> None:
@@ -321,6 +339,7 @@ def main() -> None:
             interval=args.interval,
             telegram_token=telegram_token,
             telegram_chat_id=telegram_chat_id,
+            jitter=args.jitter,
         )
     else:
         poll_and_reserve(
@@ -334,6 +353,7 @@ def main() -> None:
             args.end_time,
             telegram_token=telegram_token,
             telegram_chat_id=telegram_chat_id,
+            jitter=args.jitter,
         )
 
 
