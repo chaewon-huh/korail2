@@ -2,10 +2,13 @@
 
 import argparse
 import logging
+import os
 import sys
 import time
 from datetime import datetime
 from typing import Optional
+
+import requests
 
 from korail2 import (
     Korail,
@@ -14,6 +17,11 @@ from korail2 import (
     ReserveOption,
     SoldOutError,
 )
+
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover
+    load_dotenv = None
 
 logger = logging.getLogger("monitor_and_reserve")
 logging.basicConfig(
@@ -30,6 +38,12 @@ def normalize_id(raw_id: str) -> str:
     return raw_id
 
 
+def _load_env() -> None:
+    if load_dotenv is None:
+        return
+    load_dotenv(override=False)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Poll Korail and auto-reserve general seats."
@@ -37,10 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--id",
         dest="korail_id",
-        required=True,
         help="Korail ID (membership/email/phone)",
     )
-    parser.add_argument("--pw", dest="korail_pw", required=True, help="Korail password")
+    parser.add_argument("--pw", dest="korail_pw", help="Korail password")
     parser.add_argument(
         "--dep", default="동대구", help="Departure station (default: 동대구)"
     )
@@ -75,6 +88,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--interval", type=int, default=3, help="Polling interval seconds"
     )
+    parser.add_argument(
+        "--telegram-token",
+        default=None,
+        help="Telegram bot token (or env TELEGRAM_BOT_TOKEN)",
+    )
+    parser.add_argument(
+        "--telegram-chat-id",
+        default=None,
+        help="Telegram chat id (or env TELEGRAM_CHAT_ID)",
+    )
+    parser.add_argument(
+        "--no-telegram",
+        action="store_true",
+        help="Disable Telegram notify even if env/token is set",
+    )
     return parser.parse_args()
 
 
@@ -95,6 +123,8 @@ def poll_and_reserve(
     limit: int,
     interval: int,
     end_time: Optional[str] = None,
+    telegram_token: Optional[str] = None,
+    telegram_chat_id: Optional[str] = None,
 ):
     dep = dep.strip()
     arr = arr.strip()
@@ -137,6 +167,12 @@ def poll_and_reserve(
                         getattr(reservation, "rsv_id", None),
                         reservation,
                     )
+                    if telegram_token and telegram_chat_id:
+                        _notify_telegram(
+                            telegram_token,
+                            telegram_chat_id,
+                            f"Korail reserved: {dep}->{arr} {date} {train.dep_time}\n{reservation}",
+                        )
                     return reservation
                 except SoldOutError:
                     logger.info("Sold out while reserving candidate, moving on...")
@@ -167,6 +203,8 @@ def poll_and_reserve_exact_train(
     date: str,
     exact_dep_time: str,
     interval: int,
+    telegram_token: Optional[str] = None,
+    telegram_chat_id: Optional[str] = None,
 ):
     dep = dep.strip()
     arr = arr.strip()
@@ -212,6 +250,12 @@ def poll_and_reserve_exact_train(
                     getattr(reservation, "rsv_id", None),
                     reservation,
                 )
+                if telegram_token and telegram_chat_id:
+                    _notify_telegram(
+                        telegram_token,
+                        telegram_chat_id,
+                        f"Korail reserved: {dep}->{arr} {date} {exact_dep_time}\n{reservation}",
+                    )
                 return reservation
         except NoResultsError:
             logger.info("Exact train not found (or no schedule returned yet).")
@@ -234,10 +278,36 @@ def poll_and_reserve_exact_train(
         time.sleep(interval)
 
 
+def _notify_telegram(token: str, chat_id: str, text: str) -> None:
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        resp = requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
+        if resp.status_code != 200:
+            logger.warning(
+                "Telegram notify failed: %s %s", resp.status_code, resp.text[:200]
+            )
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Telegram notify error: %s", exc)
+
+
 def main() -> None:
+    _load_env()
     args = parse_args()
-    korail_id = normalize_id(args.korail_id)
-    korail = Korail(korail_id, args.korail_pw, auto_login=True)
+    korail_id = normalize_id(args.korail_id or os.getenv("KORAIL_ID", ""))
+    korail_pw = args.korail_pw or os.getenv("KORAIL_PW")
+    if not korail_id or not korail_pw:
+        print(
+            "Missing Korail credentials. Provide --id/--pw or set KORAIL_ID/KORAIL_PW in .env"
+        )
+        sys.exit(2)
+
+    telegram_token = args.telegram_token or os.getenv("TELEGRAM_BOT_TOKEN")
+    telegram_chat_id = args.telegram_chat_id or os.getenv("TELEGRAM_CHAT_ID")
+    if args.no_telegram:
+        telegram_token = None
+        telegram_chat_id = None
+
+    korail = Korail(korail_id, korail_pw, auto_login=True)
     if not korail.logined:
         print("Login failed. Check credentials.")
         sys.exit(1)
@@ -249,6 +319,8 @@ def main() -> None:
             date=args.date,
             exact_dep_time=args.dep_time,
             interval=args.interval,
+            telegram_token=telegram_token,
+            telegram_chat_id=telegram_chat_id,
         )
     else:
         poll_and_reserve(
@@ -260,6 +332,8 @@ def main() -> None:
             args.limit,
             args.interval,
             args.end_time,
+            telegram_token=telegram_token,
+            telegram_chat_id=telegram_chat_id,
         )
 
 

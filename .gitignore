@@ -28,3 +28,5 @@ test/korail_idpw.txt
 
 .DS_Store
 *.apk
+
+.env
